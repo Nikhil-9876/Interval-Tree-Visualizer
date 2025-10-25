@@ -1,12 +1,8 @@
-import { useState } from 'react'
 import './App.css'
+import IntervalTreeVisualizer from './components/IntervalTreeVisualizer'
 
 function App() {
-
-  return (
-    <>
-    </>
-  )
+  return <IntervalTreeVisualizer />
 }
 
 export default App
