@@ -166,108 +166,143 @@ class IntervalTree {
     return this.search(this.root, interval)
   }
 
-  // Calculate tree layout with proper spacing
-  getTreeLayout(node = this.root, viewportWidth = 800) {
-    if (!node) return { nodes: [], edges: [] }
+  // OPTIMIZED tree layout - compact, non-overlapping, all nodes visible
+  getTreeLayout(node = this.root) {
+    if (!node) return { nodes: [], edges: [], canvasWidth: 800, canvasHeight: 600 }
     
     const nodes = []
     const edges = []
+    const nodeWidth = 120
+    const nodeHeight = 80
     const verticalSpacing = 100
-    const minHorizontalSpacing = 150
-
-    const assignPositions = (n, x, y, level, offset, width) => {
-      if (!n) return { width: 0, nodeX: x }
-
-      const leftWidth = n.left ? this.getSubtreeWidth(n.left, level + 1) : 0
-      const rightWidth = n.right ? this.getSubtreeWidth(n.right, level + 1) : 0
+    const horizontalSpacing = 40
+    
+    // First pass: Calculate positions using post-order traversal for accurate subtree widths
+    const calculateSubtreeInfo = (n) => {
+      if (!n) return { width: 0, height: 0 }
       
-      const totalWidth = leftWidth + rightWidth || minHorizontalSpacing
-      const leftRatio = leftWidth / totalWidth
-      const rightRatio = rightWidth / totalWidth
-
-      const nodeX = x + offset
-
-      nodes.push({
-        id: `${n.interval[0]}-${n.interval[1]}-${level}`,
+      const leftInfo = calculateSubtreeInfo(n.left)
+      const rightInfo = calculateSubtreeInfo(n.right)
+      
+      const width = Math.max(
+        nodeWidth,
+        leftInfo.width + rightInfo.width + (leftInfo.width > 0 && rightInfo.width > 0 ? horizontalSpacing : 0)
+      )
+      
+      const height = Math.max(leftInfo.height, rightInfo.height) + nodeHeight + verticalSpacing
+      
+      return { width, height, leftWidth: leftInfo.width, rightWidth: rightInfo.width }
+    }
+    
+    let nodeCounter = 0
+    
+    // Second pass: Assign actual positions
+    const assignPositions = (n, x, y, level) => {
+      if (!n) return null
+      
+      // Calculate subtree widths for this node
+      const leftInfo = calculateSubtreeInfo(n.left)
+      const rightInfo = calculateSubtreeInfo(n.right)
+      
+      // Position current node
+      const nodeData = {
+        id: `node-${nodeCounter}`,
         interval: n.interval,
         max: n.max,
-        x: nodeX,
+        x: x,
         y: y,
-        level
-      })
-
-      if (n.left) {
-        const leftChildInfo = assignPositions(n.left, x, y + verticalSpacing, level + 1, offset - rightRatio * totalWidth / 2, leftWidth)
-        const leftNodeX = leftChildInfo.nodeX
-        edges.push({
-          from: { x: nodeX, y: y + 40 },
-          to: { x: leftNodeX, y: y + verticalSpacing - 40 }
-        })
+        level,
+        nodeIndex: nodeCounter++
       }
-
-      if (n.right) {
-        const rightChildInfo = assignPositions(n.right, x, y + verticalSpacing, level + 1, offset + leftRatio * totalWidth / 2, rightWidth)
-        const rightNodeX = rightChildInfo.nodeX
-        edges.push({
-          from: { x: nodeX, y: y + 40 },
-          to: { x: rightNodeX, y: y + verticalSpacing - 40 }
-        })
+      
+      nodes.push(nodeData)
+      const currentIndex = nodeData.nodeIndex
+      
+      // Calculate child positions
+      if (n.left && n.right) {
+        // Both children exist
+        const leftX = x - (rightInfo.width / 2 + horizontalSpacing / 2)
+        const rightX = x + (leftInfo.width / 2 + horizontalSpacing / 2)
+        
+        const childY = y + nodeHeight + verticalSpacing
+        
+        const leftChild = assignPositions(n.left, leftX, childY, level + 1)
+        const rightChild = assignPositions(n.right, rightX, childY, level + 1)
+        
+        if (leftChild) {
+          edges.push({
+            from: { x: x, y: y + nodeHeight / 2, nodeIndex: currentIndex },
+            to: { x: leftChild.x, y: leftChild.y - nodeHeight / 2, nodeIndex: leftChild.nodeIndex },
+            id: `edge-${currentIndex}-${leftChild.nodeIndex}`
+          })
+        }
+        
+        if (rightChild) {
+          edges.push({
+            from: { x: x, y: y + nodeHeight / 2, nodeIndex: currentIndex },
+            to: { x: rightChild.x, y: rightChild.y - nodeHeight / 2, nodeIndex: rightChild.nodeIndex },
+            id: `edge-${currentIndex}-${rightChild.nodeIndex}`
+          })
+        }
+      } else if (n.left) {
+        // Only left child
+        const leftX = x - nodeWidth / 2
+        const childY = y + nodeHeight + verticalSpacing
+        const leftChild = assignPositions(n.left, leftX, childY, level + 1)
+        
+        if (leftChild) {
+          edges.push({
+            from: { x: x, y: y + nodeHeight / 2, nodeIndex: currentIndex },
+            to: { x: leftChild.x, y: leftChild.y - nodeHeight / 2, nodeIndex: leftChild.nodeIndex },
+            id: `edge-${currentIndex}-${leftChild.nodeIndex}`
+          })
+        }
+      } else if (n.right) {
+        // Only right child
+        const rightX = x + nodeWidth / 2
+        const childY = y + nodeHeight + verticalSpacing
+        const rightChild = assignPositions(n.right, rightX, childY, level + 1)
+        
+        if (rightChild) {
+          edges.push({
+            from: { x: x, y: y + nodeHeight / 2, nodeIndex: currentIndex },
+            to: { x: rightChild.x, y: rightChild.y - nodeHeight / 2, nodeIndex: rightChild.nodeIndex },
+            id: `edge-${currentIndex}-${rightChild.nodeIndex}`
+          })
+        }
       }
-
-      return { width: totalWidth, nodeX }
+      
+      return nodeData
     }
-
-    const subtreeWidth = this.getSubtreeWidth(node, 0)
-    assignPositions(node, 0, 50, 0, 0, subtreeWidth)
-
-    // Fit tree to viewport width
-    const minX = nodes.length > 0 ? Math.min(...nodes.map(n => n.x)) : 0
-    const maxX = nodes.length > 0 ? Math.max(...nodes.map(n => n.x)) : 0
-    const treeWidth = maxX - minX
     
-    // Scale to fit viewport with padding
+    // Get root info and calculate canvas size
+    const rootInfo = calculateSubtreeInfo(node)
     const padding = 100
-    const availableWidth = viewportWidth - (2 * padding)
-    const scale = treeWidth > availableWidth ? availableWidth / treeWidth : 1
+    const canvasWidth = rootInfo.width + padding * 2
+    const canvasHeight = rootInfo.height + padding * 2
     
-    // Scale and center
-    if (scale !== 1) {
-      const centerX = (minX + maxX) / 2
-      nodes.forEach(n => {
-        n.x = ((n.x - centerX) * scale) + centerX
-      })
-      edges.forEach(e => {
-        e.from.x = ((e.from.x - centerX) * scale) + centerX
-        e.to.x = ((e.to.x - centerX) * scale) + centerX
-      })
+    // Start positioning from center top
+    assignPositions(node, canvasWidth / 2, padding, 0)
+    
+    return { 
+      nodes, 
+      edges, 
+      canvasWidth: Math.max(canvasWidth, 1000), 
+      canvasHeight: Math.max(canvasHeight, 600)
     }
-    
-    // Center in viewport
-    const finalMinX = Math.min(...nodes.map(n => n.x))
-    const finalMaxX = Math.max(...nodes.map(n => n.x))
-    const finalCenterX = (finalMinX + finalMaxX) / 2
-    const offsetX = viewportWidth / 2 - finalCenterX
-
-    nodes.forEach(n => {
-      n.x += offsetX
-    })
-
-    edges.forEach(e => {
-      e.from.x += offsetX
-      e.to.x += offsetX
-    })
-
-    return { nodes, edges }
   }
 
-  getSubtreeWidth(node, level) {
-    if (!node) return 0
-    if (!node.left && !node.right) return 150
-    
-    const leftWidth = this.getSubtreeWidth(node.left, level + 1)
-    const rightWidth = this.getSubtreeWidth(node.right, level + 1)
-    
-    return Math.max(leftWidth + rightWidth, 150)
+  // Get all intervals in the tree (for persistence)
+  getAllIntervals() {
+    const intervals = []
+    const traverse = (node) => {
+      if (!node) return
+      traverse(node.left)
+      intervals.push([...node.interval])
+      traverse(node.right)
+    }
+    traverse(this.root)
+    return intervals
   }
 }
 
@@ -284,7 +319,11 @@ export default function IntervalTreeVisualizer() {
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState({ x: 0, y: 0 })
+  const [isDraggingNode, setIsDraggingNode] = useState(false)
+  const [draggedNodeId, setDraggedNodeId] = useState(null)
+  const [nodePositions, setNodePositions] = useState({})
   const containerRef = useRef(null)
+  const svgRef = useRef(null)
 
   useEffect(() => {
     const handleWheel = (e) => {
@@ -322,16 +361,18 @@ export default function IntervalTreeVisualizer() {
       return
     }
 
+    // Store all existing intervals
+    const existingIntervals = tree.getAllIntervals()
+    
+    // Create new tree and rebuild with all intervals
     const newTree = new IntervalTree()
-    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth * 0.95 : 800
-    const currentNodes = tree.getTreeLayout(tree.root, viewportWidth).nodes
-    currentNodes.forEach(node => {
-      if (node.interval) {
-        newTree.insertInterval(node.interval)
-      }
+    existingIntervals.forEach(interval => {
+      newTree.insertInterval(interval)
     })
     newTree.insertInterval([startVal, endVal])
+    
     setTree(newTree)
+    setNodePositions({})
     showMessage(`Interval [${startVal}, ${endVal}] inserted successfully!`, 'success')
     setStart('')
     setEnd('')
@@ -347,16 +388,19 @@ export default function IntervalTreeVisualizer() {
       return
     }
 
+    // Store all existing intervals
+    const existingIntervals = tree.getAllIntervals()
+    
+    // Create new tree and rebuild with all intervals except the deleted one
     const newTree = new IntervalTree()
-    const viewportWidth = typeof window !== 'undefined' ? window.innerWidth * 0.95 : 800
-    const currentNodes = tree.getTreeLayout(tree.root, viewportWidth).nodes
-    currentNodes.forEach(node => {
-      if (node.interval) {
-        newTree.insertInterval(node.interval)
+    existingIntervals.forEach(interval => {
+      if (interval[0] !== startVal || interval[1] !== endVal) {
+        newTree.insertInterval(interval)
       }
     })
-    newTree.deleteInterval([startVal, endVal])
+    
     setTree(newTree)
+    setNodePositions({})
     showMessage(`Interval [${startVal}, ${endVal}] deleted successfully!`, 'success')
     setStart('')
     setEnd('')
@@ -383,7 +427,7 @@ export default function IntervalTreeVisualizer() {
   }
 
   const handleMouseDown = (e) => {
-    if (e.button === 0 && zoom > 1) {
+    if (e.button === 0 && !e.target.closest('.node-draggable')) {
       setIsPanning(true)
       setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y })
     }
@@ -395,11 +439,35 @@ export default function IntervalTreeVisualizer() {
         x: e.clientX - panStart.x,
         y: e.clientY - panStart.y
       })
+    } else if (isDraggingNode && draggedNodeId) {
+      const svg = svgRef.current
+      if (svg) {
+        const pt = svg.createSVGPoint()
+        pt.x = e.clientX
+        pt.y = e.clientY
+        const svgP = pt.matrixTransform(svg.getScreenCTM().inverse())
+        
+        setNodePositions(prev => ({
+          ...prev,
+          [draggedNodeId]: {
+            x: svgP.x,
+            y: svgP.y
+          }
+        }))
+      }
     }
   }
 
   const handleMouseUp = () => {
     setIsPanning(false)
+    setIsDraggingNode(false)
+    setDraggedNodeId(null)
+  }
+
+  const handleNodeMouseDown = (e, nodeId) => {
+    e.stopPropagation()
+    setIsDraggingNode(true)
+    setDraggedNodeId(nodeId)
   }
 
   const resetView = () => {
@@ -407,10 +475,20 @@ export default function IntervalTreeVisualizer() {
     setPan({ x: 0, y: 0 })
   }
 
-  const viewportWidth = typeof window !== 'undefined' ? window.innerWidth * 0.95 : 800
-  const treeLayout = tree.getTreeLayout(tree.root, viewportWidth)
+  const resetPositions = () => {
+    setNodePositions({})
+    showMessage('Node positions reset!', 'info')
+  }
+
+  const treeLayout = tree.getTreeLayout(tree.root)
   const treeNodes = treeLayout.nodes
   const treeEdges = treeLayout.edges
+  const canvasWidth = treeLayout.canvasWidth
+  const canvasHeight = treeLayout.canvasHeight
+
+  const getNodePosition = (node) => {
+    return nodePositions[node.id] || { x: node.x, y: node.y }
+  }
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
@@ -419,7 +497,7 @@ export default function IntervalTreeVisualizer() {
           <h1 className="text-4xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 mb-2">
             Interval Tree Visualizer
           </h1>
-          <p className="text-gray-600">Interactive visualization with zoom & pan support</p>
+          <p className="text-gray-600">Interactive visualization - All nodes guaranteed visible</p>
         </div>
 
         {message && (
@@ -505,19 +583,28 @@ export default function IntervalTreeVisualizer() {
           </div>
 
           <div className="bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl shadow-lg p-4 text-white">
-            <h2 className="text-xl font-bold mb-3">ℹ️ Controls</h2>
-            <ul className="space-y-1 text-sm">
+            <h2 className="text-xl font-bold mb-3">ℹ️ Controls & Stats</h2>
+            <div className="space-y-2 text-sm mb-3">
+              <p>• Total Nodes: <strong>{treeNodes.length}</strong></p>
+              <p>• Tree Height: <strong>{tree.getHeight(tree.root)}</strong></p>
+            </div>
+            <ul className="space-y-1 text-sm mb-3">
               <li>• Ctrl + Scroll to zoom</li>
-              <li>• Drag to pan</li>
-              <li>• Click to reset view</li>
-              <li>• Max endpoint shown per node</li>
+              <li>• Drag canvas to pan</li>
+              <li>• Drag nodes to reposition</li>
             </ul>
-            <div className="mt-3 pt-3 border-t border-white/30">
+            <div className="pt-3 border-t border-white/30 space-y-2">
               <button
                 onClick={resetView}
                 className="w-full bg-white/20 hover:bg-white/30 py-2 rounded-lg transition text-sm"
               >
                 Reset View
+              </button>
+              <button
+                onClick={resetPositions}
+                className="w-full bg-white/20 hover:bg-white/30 py-2 rounded-lg transition text-sm"
+              >
+                Reset Positions
               </button>
             </div>
           </div>
@@ -552,68 +639,100 @@ export default function IntervalTreeVisualizer() {
           ) : (
             <div
               ref={containerRef}
-              className="relative overflow-hidden border-2 border-gray-200 rounded-lg bg-gray-50"
-              style={{ height: '600px', cursor: isPanning ? 'grabbing' : 'grab' }}
+              className="relative overflow-auto border-2 border-gray-200 rounded-lg bg-gray-50"
+              style={{ 
+                height: '600px', 
+                cursor: isPanning ? 'grabbing' : isDraggingNode ? 'grabbing' : 'grab' 
+              }}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
               onMouseUp={handleMouseUp}
               onMouseLeave={handleMouseUp}
             >
               <svg
-                width="100%"
-                height="100%"
+                ref={svgRef}
+                width={canvasWidth}
+                height={canvasHeight}
+                viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                  transformOrigin: '0 0'
+                  transformOrigin: '0 0',
+                  minWidth: '100%',
+                  minHeight: '100%'
                 }}
               >
-                {treeEdges.map((edge, idx) => (
-                  <line
-                    key={`edge-${idx}`}
-                    x1={edge.from.x}
-                    y1={edge.from.y}
-                    x2={edge.to.x}
-                    y2={edge.to.y}
-                    stroke="#94a3b8"
-                    strokeWidth="2"
-                  />
-                ))}
-
-                {treeNodes.map((node) => (
-                  <g key={node.id}>
-                    <rect
-                      x={node.x - 60}
-                      y={node.y - 40}
-                      width="120"
-                      height="80"
-                      rx="8"
-                      fill={searchResult && node.interval[0] === searchResult[0] && node.interval[1] === searchResult[1]
-                        ? "#10b981"
-                        : "#3b82f6"}
-                      stroke="#1e40af"
-                      strokeWidth="2"
+                {/* Render edges first so they appear behind nodes */}
+                {treeEdges.map((edge, idx) => {
+                  const fromNode = treeNodes[edge.from.nodeIndex]
+                  const toNode = treeNodes[edge.to.nodeIndex]
+                  
+                  if (!fromNode || !toNode) return null
+                  
+                  const fromPos = getNodePosition(fromNode)
+                  const toPos = getNodePosition(toNode)
+                  
+                  return (
+                    <line
+                      key={edge.id}
+                      x1={fromPos.x}
+                      y1={fromPos.y + 40}
+                      x2={toPos.x}
+                      y2={toPos.y - 40}
+                      stroke="#2563eb"
+                      strokeWidth="3"
+                      strokeOpacity="0.8"
                     />
-                    <text
-                      x={node.x}
-                      y={node.y + 5}
-                      textAnchor="middle"
-                      fill="white"
-                      fontSize="13"
-                      fontWeight="bold"
+                  )
+                })}
+
+                {/* Render nodes */}
+                {treeNodes.map((node) => {
+                  const pos = getNodePosition(node)
+                  const isHighlighted = searchResult && 
+                    node.interval[0] === searchResult[0] && 
+                    node.interval[1] === searchResult[1]
+                  
+                  return (
+                    <g
+                      key={node.id}
+                      className="node-draggable"
+                      onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
+                      style={{ cursor: 'move' }}
                     >
-                      [{node.interval[0]}, {node.interval[1]}]
-                    </text>
-                    <text
-                      x={node.x}
-                      y={node.y + 25}
-                      textAnchor="middle"
-                      fill="white"
-                      fontSize="11"
-                    >
-                      max: {node.max}
-                    </text>
-                  </g>
-                ))}
+                      <rect
+                        x={pos.x - 60}
+                        y={pos.y - 40}
+                        width="120"
+                        height="80"
+                        rx="8"
+                        fill={isHighlighted ? "#10b981" : "#3b82f6"}
+                        stroke="#1e40af"
+                        strokeWidth="2"
+                      />
+                      <text
+                        x={pos.x}
+                        y={pos.y + 5}
+                        textAnchor="middle"
+                        fill="white"
+                        fontSize="13"
+                        fontWeight="bold"
+                        pointerEvents="none"
+                      >
+                        [{node.interval[0]}, {node.interval[1]}]
+                      </text>
+                      <text
+                        x={pos.x}
+                        y={pos.y + 25}
+                        textAnchor="middle"
+                        fill="white"
+                        fontSize="11"
+                        pointerEvents="none"
+                      >
+                        max: {node.max}
+                      </text>
+                    </g>
+                  )
+                })}
               </svg>
             </div>
           )}
