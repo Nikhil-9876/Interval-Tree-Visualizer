@@ -1,336 +1,33 @@
 import { useState, useRef, useEffect } from 'react'
-
-// Interval Tree Node class
-class ITreeNode {
-  constructor(interval) {
-    this.interval = interval
-    this.max = interval[1]
-    this.left = null
-    this.right = null
-    this.height = 1
-  }
-}
-
-// Interval Tree class
-class IntervalTree {
-  constructor() {
-    this.root = null
-  }
-
-  getHeight(node) {
-    return node ? node.height : 0
-  }
-
-  updateHeight(node) {
-    if (node) {
-      node.height = Math.max(this.getHeight(node.left), this.getHeight(node.right)) + 1
-      this.updateMax(node)
-    }
-  }
-
-  updateMax(node) {
-    if (node) {
-      node.max = node.interval[1]
-      if (node.left) node.max = Math.max(node.max, node.left.max)
-      if (node.right) node.max = Math.max(node.max, node.right.max)
-    }
-  }
-
-  rotateRight(y) {
-    const x = y.left
-    const T2 = x.right
-    x.right = y
-    y.left = T2
-    this.updateHeight(y)
-    this.updateHeight(x)
-    return x
-  }
-
-  rotateLeft(x) {
-    const y = x.right
-    const T2 = y.left
-    y.left = x
-    x.right = T2
-    this.updateHeight(x)
-    this.updateHeight(y)
-    return y
-  }
-
-  getBalance(node) {
-    return node ? this.getHeight(node.left) - this.getHeight(node.right) : 0
-  }
-
-  doOverlap(interval1, interval2) {
-    return interval1[0] <= interval2[1] && interval2[0] <= interval1[1]
-  }
-
-  insert(root, interval) {
-    if (!root) return new ITreeNode(interval)
-
-    if (interval[0] < root.interval[0] || 
-        (interval[0] === root.interval[0] && interval[1] < root.interval[1])) {
-      root.left = this.insert(root.left, interval)
-    } else {
-      root.right = this.insert(root.right, interval)
-    }
-
-    this.updateHeight(root)
-    const balance = this.getBalance(root)
-
-    if (balance > 1 && interval[0] < root.left.interval[0])
-      return this.rotateRight(root)
-
-    if (balance < -1 && interval[0] > root.right.interval[0])
-      return this.rotateLeft(root)
-
-    if (balance > 1 && interval[0] > root.left.interval[0]) {
-      root.left = this.rotateLeft(root.left)
-      return this.rotateRight(root)
-    }
-
-    if (balance < -1 && interval[0] < root.right.interval[0]) {
-      root.right = this.rotateRight(root.right)
-      return this.rotateLeft(root)
-    }
-
-    return root
-  }
-
-  insertInterval(interval) {
-    this.root = this.insert(this.root, interval)
-  }
-
-  minValueNode(node) {
-    while (node.left) node = node.left
-    return node
-  }
-
-  deleteNode(root, interval) {
-    if (!root) return root
-
-    const cmpStart = interval[0] - root.interval[0]
-    const cmpEnd = interval[1] - root.interval[1]
-
-    if (cmpStart < 0 || (cmpStart === 0 && cmpEnd < 0)) {
-      root.left = this.deleteNode(root.left, interval)
-    } else if (cmpStart > 0 || (cmpStart === 0 && cmpEnd > 0)) {
-      root.right = this.deleteNode(root.right, interval)
-    } else {
-      if (!root.left || !root.right) {
-        const temp = root.left || root.right
-        root = temp || null
-      } else {
-        const temp = this.minValueNode(root.right)
-        root.interval = temp.interval
-        root.right = this.deleteNode(root.right, temp.interval)
-      }
-    }
-
-    if (!root) return root
-
-    this.updateHeight(root)
-    const balance = this.getBalance(root)
-
-    if (balance > 1 && this.getBalance(root.left) >= 0)
-      return this.rotateRight(root)
-
-    if (balance > 1 && this.getBalance(root.left) < 0) {
-      root.left = this.rotateLeft(root.left)
-      return this.rotateRight(root)
-    }
-
-    if (balance < -1 && this.getBalance(root.right) <= 0)
-      return this.rotateLeft(root)
-
-    if (balance < -1 && this.getBalance(root.right) > 0) {
-      root.right = this.rotateRight(root.right)
-      return this.rotateLeft(root)
-    }
-
-    return root
-  }
-
-  deleteInterval(interval) {
-    this.root = this.deleteNode(this.root, interval)
-  }
-
-  search(root, interval) {
-    if (!root) return null
-    if (this.doOverlap(root.interval, interval)) return root
-    if (root.left && root.left.max >= interval[0])
-      return this.search(root.left, interval)
-    return this.search(root.right, interval)
-  }
-
-  searchInterval(interval) {
-    return this.search(this.root, interval)
-  }
-
-  // OPTIMIZED tree layout - compact, non-overlapping, all nodes visible
-  getTreeLayout(node = this.root) {
-    if (!node) return { nodes: [], edges: [], canvasWidth: 800, canvasHeight: 600 }
-    
-    const nodes = []
-    const edges = []
-    const nodeWidth = 120
-    const nodeHeight = 80
-    const verticalSpacing = 100
-    const horizontalSpacing = 40
-    
-    // First pass: Calculate positions using post-order traversal for accurate subtree widths
-    const calculateSubtreeInfo = (n) => {
-      if (!n) return { width: 0, height: 0 }
-      
-      const leftInfo = calculateSubtreeInfo(n.left)
-      const rightInfo = calculateSubtreeInfo(n.right)
-      
-      const width = Math.max(
-        nodeWidth,
-        leftInfo.width + rightInfo.width + (leftInfo.width > 0 && rightInfo.width > 0 ? horizontalSpacing : 0)
-      )
-      
-      const height = Math.max(leftInfo.height, rightInfo.height) + nodeHeight + verticalSpacing
-      
-      return { width, height, leftWidth: leftInfo.width, rightWidth: rightInfo.width }
-    }
-    
-    let nodeCounter = 0
-    
-    // Second pass: Assign actual positions
-    const assignPositions = (n, x, y, level) => {
-      if (!n) return null
-      
-      // Calculate subtree widths for this node
-      const leftInfo = calculateSubtreeInfo(n.left)
-      const rightInfo = calculateSubtreeInfo(n.right)
-      
-      // Position current node
-      const nodeData = {
-        id: `node-${nodeCounter}`,
-        interval: n.interval,
-        max: n.max,
-        x: x,
-        y: y,
-        level,
-        nodeIndex: nodeCounter++
-      }
-      
-      nodes.push(nodeData)
-      const currentIndex = nodeData.nodeIndex
-      
-      // Calculate child positions
-      if (n.left && n.right) {
-        // Both children exist
-        const leftX = x - (rightInfo.width / 2 + horizontalSpacing / 2)
-        const rightX = x + (leftInfo.width / 2 + horizontalSpacing / 2)
-        
-        const childY = y + nodeHeight + verticalSpacing
-        
-        const leftChild = assignPositions(n.left, leftX, childY, level + 1)
-        const rightChild = assignPositions(n.right, rightX, childY, level + 1)
-        
-        if (leftChild) {
-          edges.push({
-            from: { x: x, y: y + nodeHeight / 2, nodeIndex: currentIndex },
-            to: { x: leftChild.x, y: leftChild.y - nodeHeight / 2, nodeIndex: leftChild.nodeIndex },
-            id: `edge-${currentIndex}-${leftChild.nodeIndex}`
-          })
-        }
-        
-        if (rightChild) {
-          edges.push({
-            from: { x: x, y: y + nodeHeight / 2, nodeIndex: currentIndex },
-            to: { x: rightChild.x, y: rightChild.y - nodeHeight / 2, nodeIndex: rightChild.nodeIndex },
-            id: `edge-${currentIndex}-${rightChild.nodeIndex}`
-          })
-        }
-      } else if (n.left) {
-        // Only left child
-        const leftX = x - nodeWidth / 2
-        const childY = y + nodeHeight + verticalSpacing
-        const leftChild = assignPositions(n.left, leftX, childY, level + 1)
-        
-        if (leftChild) {
-          edges.push({
-            from: { x: x, y: y + nodeHeight / 2, nodeIndex: currentIndex },
-            to: { x: leftChild.x, y: leftChild.y - nodeHeight / 2, nodeIndex: leftChild.nodeIndex },
-            id: `edge-${currentIndex}-${leftChild.nodeIndex}`
-          })
-        }
-      } else if (n.right) {
-        // Only right child
-        const rightX = x + nodeWidth / 2
-        const childY = y + nodeHeight + verticalSpacing
-        const rightChild = assignPositions(n.right, rightX, childY, level + 1)
-        
-        if (rightChild) {
-          edges.push({
-            from: { x: x, y: y + nodeHeight / 2, nodeIndex: currentIndex },
-            to: { x: rightChild.x, y: rightChild.y - nodeHeight / 2, nodeIndex: rightChild.nodeIndex },
-            id: `edge-${currentIndex}-${rightChild.nodeIndex}`
-          })
-        }
-      }
-      
-      return nodeData
-    }
-    
-    // Get root info and calculate canvas size
-    const rootInfo = calculateSubtreeInfo(node)
-    const padding = 100
-    const canvasWidth = rootInfo.width + padding * 2
-    const canvasHeight = rootInfo.height + padding * 2
-    
-    // Start positioning from center top
-    assignPositions(node, canvasWidth / 2, padding, 0)
-    
-    return { 
-      nodes, 
-      edges, 
-      canvasWidth: Math.max(canvasWidth, 1000), 
-      canvasHeight: Math.max(canvasHeight, 600)
-    }
-  }
-
-  // Get all intervals in the tree (for persistence)
-  getAllIntervals() {
-    const intervals = []
-    const traverse = (node) => {
-      if (!node) return
-      traverse(node.left)
-      intervals.push([...node.interval])
-      traverse(node.right)
-    }
-    traverse(this.root)
-    return intervals
-  }
-}
+import { useIntervalTree } from '../hooks/useIntervalTree'
 
 export default function IntervalTreeVisualizer() {
-  const [tree, setTree] = useState(new IntervalTree())
+  const {
+    tree,
+    searchResult,
+    message,
+    messageType,
+    insertInterval,
+    deleteInterval,
+    searchInterval
+  } = useIntervalTree()
+
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
   const [searchStart, setSearchStart] = useState('')
   const [searchEnd, setSearchEnd] = useState('')
-  const [searchResult, setSearchResult] = useState(null)
-  const [message, setMessage] = useState('')
-  const [messageType, setMessageType] = useState('')
-  const [zoom, setZoom] = useState(1)
+  const [zoom, setZoom] = useState(0.8)
   const [pan, setPan] = useState({ x: 0, y: 0 })
   const [isPanning, setIsPanning] = useState(false)
   const [panStart, setPanStart] = useState({ x: 0, y: 0 })
-  const [isDraggingNode, setIsDraggingNode] = useState(false)
-  const [draggedNodeId, setDraggedNodeId] = useState(null)
-  const [nodePositions, setNodePositions] = useState({})
   const containerRef = useRef(null)
-  const svgRef = useRef(null)
 
   useEffect(() => {
     const handleWheel = (e) => {
       if (e.ctrlKey || e.metaKey) {
         e.preventDefault()
         const delta = e.deltaY * -0.001
-        setZoom(prev => Math.min(Math.max(0.3, prev + delta), 3))
+        setZoom(prev => Math.min(Math.max(0.2, prev + delta), 2))
       }
     }
 
@@ -341,93 +38,30 @@ export default function IntervalTreeVisualizer() {
     }
   }, [])
 
-  const showMessage = (text, type = 'info') => {
-    setMessage(text)
-    setMessageType(type)
-    setTimeout(() => setMessage(''), 3000)
-  }
-
   const handleInsert = () => {
     const startVal = parseInt(start)
     const endVal = parseInt(end)
-
-    if (isNaN(startVal) || isNaN(endVal)) {
-      showMessage('Please enter valid start and end values', 'error')
-      return
-    }
-
-    if (startVal > endVal) {
-      showMessage('Start value must be less than or equal to end value', 'error')
-      return
-    }
-
-    // Store all existing intervals
-    const existingIntervals = tree.getAllIntervals()
-    
-    // Create new tree and rebuild with all intervals
-    const newTree = new IntervalTree()
-    existingIntervals.forEach(interval => {
-      newTree.insertInterval(interval)
-    })
-    newTree.insertInterval([startVal, endVal])
-    
-    setTree(newTree)
-    setNodePositions({})
-    showMessage(`Interval [${startVal}, ${endVal}] inserted successfully!`, 'success')
+    insertInterval(startVal, endVal)
     setStart('')
     setEnd('')
-    setSearchResult(null)
   }
 
   const handleDelete = () => {
     const startVal = parseInt(start)
     const endVal = parseInt(end)
-
-    if (isNaN(startVal) || isNaN(endVal)) {
-      showMessage('Please enter valid start and end values', 'error')
-      return
-    }
-
-    // Store all existing intervals
-    const existingIntervals = tree.getAllIntervals()
-    
-    // Create new tree and rebuild with all intervals except the deleted one
-    const newTree = new IntervalTree()
-    existingIntervals.forEach(interval => {
-      if (interval[0] !== startVal || interval[1] !== endVal) {
-        newTree.insertInterval(interval)
-      }
-    })
-    
-    setTree(newTree)
-    setNodePositions({})
-    showMessage(`Interval [${startVal}, ${endVal}] deleted successfully!`, 'success')
+    deleteInterval(startVal, endVal)
     setStart('')
     setEnd('')
-    setSearchResult(null)
   }
 
   const handleSearch = () => {
     const startVal = parseInt(searchStart)
     const endVal = parseInt(searchEnd)
-
-    if (isNaN(startVal) || isNaN(endVal)) {
-      showMessage('Please enter valid search start and end values', 'error')
-      return
-    }
-
-    const result = tree.searchInterval([startVal, endVal])
-    if (result) {
-      setSearchResult(result.interval)
-      showMessage(`Found overlapping interval: [${result.interval[0]}, ${result.interval[1]}]`, 'success')
-    } else {
-      setSearchResult(null)
-      showMessage('No overlapping interval found', 'info')
-    }
+    searchInterval(startVal, endVal)
   }
 
   const handleMouseDown = (e) => {
-    if (e.button === 0 && !e.target.closest('.node-draggable')) {
+    if (e.button === 0) {
       setIsPanning(true)
       setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y })
     }
@@ -439,56 +73,324 @@ export default function IntervalTreeVisualizer() {
         x: e.clientX - panStart.x,
         y: e.clientY - panStart.y
       })
-    } else if (isDraggingNode && draggedNodeId) {
-      const svg = svgRef.current
-      if (svg) {
-        const pt = svg.createSVGPoint()
-        pt.x = e.clientX
-        pt.y = e.clientY
-        const svgP = pt.matrixTransform(svg.getScreenCTM().inverse())
-        
-        setNodePositions(prev => ({
-          ...prev,
-          [draggedNodeId]: {
-            x: svgP.x,
-            y: svgP.y
-          }
-        }))
-      }
     }
   }
 
   const handleMouseUp = () => {
     setIsPanning(false)
-    setIsDraggingNode(false)
-    setDraggedNodeId(null)
-  }
-
-  const handleNodeMouseDown = (e, nodeId) => {
-    e.stopPropagation()
-    setIsDraggingNode(true)
-    setDraggedNodeId(nodeId)
   }
 
   const resetView = () => {
-    setZoom(1)
+    setZoom(0.8)
     setPan({ x: 0, y: 0 })
   }
 
-  const resetPositions = () => {
-    setNodePositions({})
-    showMessage('Node positions reset!', 'info')
+  // Get intervals for visualization
+  const intervals = tree.getAllIntervals()
+  
+  // Enhanced tree layout with proper spacing for large trees
+  const getEnhancedTreeLayout = () => {
+    if (tree.root === tree.NIL) {
+      return { nodes: [], edges: [], canvasWidth: 1200, canvasHeight: 800 }
+    }
+    
+    const nodes = []
+    const edges = []
+    
+    // Enhanced spacing for larger trees
+    const nodeWidth = 140
+    const nodeHeight = 90
+    const minVerticalSpacing = 120
+    const minHorizontalSpacing = 180
+    
+    // Calculate tree dimensions first
+    const getTreeInfo = (node) => {
+      if (node === tree.NIL) return { width: 0, height: 0, nodeCount: 0 }
+      
+      const leftInfo = getTreeInfo(node.left)
+      const rightInfo = getTreeInfo(node.right)
+      
+      const childrenWidth = leftInfo.width + rightInfo.width + 
+        (leftInfo.nodeCount > 0 && rightInfo.nodeCount > 0 ? minHorizontalSpacing : 0)
+      
+      return {
+        width: Math.max(nodeWidth, childrenWidth),
+        height: Math.max(leftInfo.height, rightInfo.height) + minVerticalSpacing,
+        nodeCount: leftInfo.nodeCount + rightInfo.nodeCount + 1
+      }
+    }
+    
+    let nodeCounter = 0
+    
+    // Improved positioning algorithm to prevent overlaps
+    const positionNodes = (node, x, y, level, availableWidth) => {
+      if (node === tree.NIL) return null
+      
+      const leftInfo = getTreeInfo(node.left)
+      const rightInfo = getTreeInfo(node.right)
+      
+      const nodeData = {
+        id: `node-${nodeCounter}`,
+        interval: node.interval,
+        max: node.max,
+        color: node.color,
+        x: x,
+        y: y,
+        level,
+        nodeIndex: nodeCounter++
+      }
+      
+      nodes.push(nodeData)
+      const currentIndex = nodeData.nodeIndex
+      
+      const childY = y + minVerticalSpacing
+      
+      // Calculate child positions with adequate spacing
+      if (node.left !== tree.NIL && node.right !== tree.NIL) {
+        const totalChildWidth = leftInfo.width + rightInfo.width + minHorizontalSpacing
+        const leftStart = x - totalChildWidth / 2
+        const leftX = leftStart + leftInfo.width / 2
+        const rightX = leftStart + leftInfo.width + minHorizontalSpacing + rightInfo.width / 2
+        
+        const leftChild = positionNodes(node.left, leftX, childY, level + 1, leftInfo.width)
+        const rightChild = positionNodes(node.right, rightX, childY, level + 1, rightInfo.width)
+        
+        if (leftChild) {
+          edges.push({
+            from: { x, y: y + nodeHeight / 2, nodeIndex: currentIndex },
+            to: { x: leftChild.x, y: leftChild.y - nodeHeight / 2, nodeIndex: leftChild.nodeIndex },
+            id: `edge-${currentIndex}-${leftChild.nodeIndex}`
+          })
+        }
+        
+        if (rightChild) {
+          edges.push({
+            from: { x, y: y + nodeHeight / 2, nodeIndex: currentIndex },
+            to: { x: rightChild.x, y: rightChild.y - nodeHeight / 2, nodeIndex: rightChild.nodeIndex },
+            id: `edge-${currentIndex}-${rightChild.nodeIndex}`
+          })
+        }
+      } else if (node.left !== tree.NIL) {
+        const leftX = x - minHorizontalSpacing / 2
+        const leftChild = positionNodes(node.left, leftX, childY, level + 1, leftInfo.width)
+        
+        if (leftChild) {
+          edges.push({
+            from: { x, y: y + nodeHeight / 2, nodeIndex: currentIndex },
+            to: { x: leftChild.x, y: leftChild.y - nodeHeight / 2, nodeIndex: leftChild.nodeIndex },
+            id: `edge-${currentIndex}-${leftChild.nodeIndex}`
+          })
+        }
+      } else if (node.right !== tree.NIL) {
+        const rightX = x + minHorizontalSpacing / 2
+        const rightChild = positionNodes(node.right, rightX, childY, level + 1, rightInfo.width)
+        
+        if (rightChild) {
+          edges.push({
+            from: { x, y: y + nodeHeight / 2, nodeIndex: currentIndex },
+            to: { x: rightChild.x, y: rightChild.y - nodeHeight / 2, nodeIndex: rightChild.nodeIndex },
+            id: `edge-${currentIndex}-${rightChild.nodeIndex}`
+          })
+        }
+      }
+      
+      return nodeData
+    }
+    
+    const rootInfo = getTreeInfo(tree.root)
+    
+    // Dynamic canvas sizing based on tree size
+    const padding = 150
+    const canvasWidth = Math.max(1400, rootInfo.width + padding * 2)
+    const canvasHeight = Math.max(900, rootInfo.height + padding * 2)
+    
+    positionNodes(tree.root, canvasWidth / 2, padding, 0, rootInfo.width)
+    
+    return { nodes, edges, canvasWidth, canvasHeight }
+  }
+  
+  // Enhanced interval visualization with scrolling
+  const createIntervalVisualization = () => {
+    if (intervals.length === 0) return null
+
+    const minStart = Math.min(...intervals.map(i => i[0]))
+    const maxEnd = Math.max(...intervals.map(i => i[1]))
+    const range = maxEnd - minStart || 10
+    const padding = range * 0.1
+    const totalRange = range + 2 * padding
+    const svgWidth = 1000
+    const lineHeight = 35
+    const headerHeight = 60
+    
+    // Dynamic height based on number of intervals
+    const contentHeight = Math.max(300, intervals.length * lineHeight + 100)
+    const maxVisibleHeight = 400
+    const needsScrolling = contentHeight > maxVisibleHeight
+    
+    const startY = headerHeight
+
+    return (
+      <div className="bg-white rounded-xl shadow-lg p-4 mt-6">
+        <h2 className="text-2xl font-bold mb-4">📊 Interval Overlap Visualization</h2>
+        
+        <div 
+          className={`border rounded ${needsScrolling ? 'overflow-y-auto' : ''}`}
+          style={{ 
+            maxHeight: needsScrolling ? `${maxVisibleHeight}px` : 'auto',
+            height: needsScrolling ? `${maxVisibleHeight}px` : `${contentHeight}px`
+          }}
+        >
+          <svg 
+            width={svgWidth} 
+            height={contentHeight}
+            className="w-full"
+          >
+            {/* Grid lines */}
+            {Array.from({ length: 11 }, (_, i) => {
+              const x = (i * svgWidth) / 10
+              const value = minStart - padding + (i * totalRange) / 10
+              return (
+                <g key={i}>
+                  <line
+                    x1={x}
+                    y1={30}
+                    x2={x}
+                    y2={contentHeight - 20}
+                    stroke="#e5e7eb"
+                    strokeDasharray="2,2"
+                  />
+                  <text
+                    x={x}
+                    y={20}
+                    textAnchor="middle"
+                    fontSize="11"
+                    fill="#6b7280"
+                    fontWeight="500"
+                  >
+                    {Math.round(value)}
+                  </text>
+                </g>
+              )
+            })}
+
+            {/* Intervals as horizontal bars */}
+            {intervals.map((interval, index) => {
+              const startX = ((interval[0] - minStart + padding) / totalRange) * svgWidth
+              const endX = ((interval[1] - minStart + padding) / totalRange) * svgWidth
+              const width = Math.max(endX - startX, 20) // Minimum width for visibility
+              const y = startY + (index * lineHeight)
+              
+              const isHighlighted = searchResult && 
+                interval[0] === searchResult[0] && 
+                interval[1] === searchResult[1]
+              
+              return (
+                <g key={index}>
+                  {/* Interval bar */}
+                  <rect
+                    x={startX}
+                    y={y}
+                    width={width}
+                    height={28}
+                    fill={isHighlighted ? "#10b981" : "#3b82f6"}
+                    fillOpacity="0.8"
+                    stroke={isHighlighted ? "#059669" : "#1d4ed8"}
+                    strokeWidth="2"
+                    rx="4"
+                  />
+                  
+                  {/* Interval label */}
+                  <text
+                    x={startX + width / 2}
+                    y={y + 18}
+                    textAnchor="middle"
+                    fontSize="12"
+                    fill="white"
+                    fontWeight="bold"
+                  >
+                    [{interval[0]}, {interval[1]}]
+                  </text>
+                  
+                  {/* Start point marker */}
+                  <circle
+                    cx={startX}
+                    cy={y + 14}
+                    r="5"
+                    fill={isHighlighted ? "#059669" : "#1d4ed8"}
+                    stroke="white"
+                    strokeWidth="2"
+                  />
+                  
+                  {/* End point marker */}
+                  <circle
+                    cx={endX}
+                    cy={y + 14}
+                    r="5"
+                    fill={isHighlighted ? "#059669" : "#1d4ed8"}
+                    stroke="white"
+                    strokeWidth="2"
+                  />
+                  
+                  {/* Index label */}
+                  <text
+                    x={10}
+                    y={y + 18}
+                    fontSize="10"
+                    fill="#6b7280"
+                    fontWeight="bold"
+                  >
+                    #{index + 1}
+                  </text>
+                </g>
+              )
+            })}
+
+            {/* Search interval overlay */}
+            {searchStart && searchEnd && !isNaN(parseInt(searchStart)) && !isNaN(parseInt(searchEnd)) && (
+              <g>
+                <rect
+                  x={((parseInt(searchStart) - minStart + padding) / totalRange) * svgWidth}
+                  y={startY - 10}
+                  width={Math.max(((parseInt(searchEnd) - parseInt(searchStart)) / totalRange) * svgWidth, 20)}
+                  height={intervals.length * lineHeight + 30}
+                  fill="rgba(239, 68, 68, 0.15)"
+                  stroke="#ef4444"
+                  strokeWidth="2"
+                  strokeDasharray="8,4"
+                  rx="6"
+                />
+                <text
+                  x={((parseInt(searchStart) + parseInt(searchEnd)) / 2 - minStart + padding) / totalRange * svgWidth}
+                  y={startY - 20}
+                  textAnchor="middle"
+                  fontSize="13"
+                  fill="#ef4444"
+                  fontWeight="bold"
+                >
+                  🔍 Search: [{searchStart}, {searchEnd}]
+                </text>
+              </g>
+            )}
+          </svg>
+        </div>
+        
+        <div className="mt-3 text-sm text-gray-600 bg-gray-50 p-3 rounded-lg">
+          <div className="grid grid-cols-3 gap-4">
+            <p>• <span className="inline-block w-3 h-3 bg-blue-600 rounded mr-1"></span>Stored intervals</p>
+            <p>• <span className="inline-block w-3 h-3 bg-green-600 rounded mr-1"></span>Search results</p>
+            <p>• <span className="inline-block w-3 h-3 border-2 border-red-500 border-dashed rounded mr-1"></span>Search query</p>
+          </div>
+          {needsScrolling && (
+            <p className="mt-2 text-xs text-blue-600">📜 Scroll to view all {intervals.length} intervals</p>
+          )}
+        </div>
+      </div>
+    )
   }
 
-  const treeLayout = tree.getTreeLayout(tree.root)
+  const treeLayout = getEnhancedTreeLayout()
   const treeNodes = treeLayout.nodes
   const treeEdges = treeLayout.edges
-  const canvasWidth = treeLayout.canvasWidth
-  const canvasHeight = treeLayout.canvasHeight
-
-  const getNodePosition = (node) => {
-    return nodePositions[node.id] || { x: node.x, y: node.y }
-  }
   
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50">
@@ -497,7 +399,7 @@ export default function IntervalTreeVisualizer() {
           <h1 className="text-4xl md:text-5xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-purple-600 to-pink-600 mb-2">
             Interval Tree Visualizer
           </h1>
-          <p className="text-gray-600">Interactive visualization - All nodes guaranteed visible</p>
+          <p className="text-gray-600">Self-balancing binary search tree for interval overlap queries</p>
         </div>
 
         {message && (
@@ -511,10 +413,9 @@ export default function IntervalTreeVisualizer() {
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+          {/* Insert/Delete Panel */}
           <div className="bg-white rounded-xl shadow-lg p-4">
-            <h2 className="text-xl font-bold mb-3 flex items-center">
-              <span className="mr-2">➕</span> Insert / Delete
-            </h2>
+            <h2 className="text-xl font-bold mb-3">➕ Insert / Delete</h2>
             <div className="space-y-3">
               <input
                 type="number"
@@ -533,13 +434,13 @@ export default function IntervalTreeVisualizer() {
               <div className="flex gap-2">
                 <button
                   onClick={handleInsert}
-                  className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition"
+                  className="flex-1 bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition-colors"
                 >
                   Insert
                 </button>
                 <button
                   onClick={handleDelete}
-                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition"
+                  className="flex-1 bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition-colors"
                 >
                   Delete
                 </button>
@@ -547,85 +448,78 @@ export default function IntervalTreeVisualizer() {
             </div>
           </div>
 
+          {/* Search Panel */}
           <div className="bg-white rounded-xl shadow-lg p-4">
-            <h2 className="text-xl font-bold mb-3 flex items-center">
-              <span className="mr-2">🔍</span> Search
-            </h2>
+            <h2 className="text-xl font-bold mb-3">🔍 Search</h2>
             <div className="space-y-3">
               <input
                 type="number"
                 value={searchStart}
                 onChange={(e) => setSearchStart(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
                 placeholder="Start"
               />
               <input
                 type="number"
                 value={searchEnd}
                 onChange={(e) => setSearchEnd(e.target.value)}
-                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-blue-500"
+                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-purple-500"
                 placeholder="End"
               />
               <button
                 onClick={handleSearch}
-                className="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition"
+                className="w-full bg-purple-600 text-white py-2 px-4 rounded-lg hover:bg-purple-700 transition-colors"
               >
-                Search
+                Search Overlap
               </button>
               {searchResult && (
-                <div className="bg-green-50 border border-green-200 rounded p-2">
-                  <p className="text-sm text-green-800">
-                    Found: [{searchResult[0]}, {searchResult[1]}]
+                <div className="bg-green-50 border border-green-200 rounded-lg p-3">
+                  <p className="text-sm text-green-800 font-medium">
+                    ✅ Found: [{searchResult[0]}, {searchResult[1]}]
                   </p>
                 </div>
               )}
             </div>
           </div>
 
+          {/* Stats Panel */}
           <div className="bg-gradient-to-br from-blue-500 to-purple-600 rounded-xl shadow-lg p-4 text-white">
-            <h2 className="text-xl font-bold mb-3">ℹ️ Controls & Stats</h2>
-            <div className="space-y-2 text-sm mb-3">
+            <h2 className="text-xl font-bold mb-3">ℹ️ Tree Stats</h2>
+            <div className="space-y-2 text-sm mb-4">
               <p>• Total Nodes: <strong>{treeNodes.length}</strong></p>
-              <p>• Tree Height: <strong>{tree.getHeight(tree.root)}</strong></p>
+              <p>• Tree Height: <strong>{tree.getHeight()}</strong></p>
+              <p>• Canvas Size: <strong>{Math.round(treeLayout.canvasWidth)}×{Math.round(treeLayout.canvasHeight)}</strong></p>
+              <p>• Max Endpoint: <strong>{intervals.length > 0 ? Math.max(...intervals.map(i => i[1])) : 'N/A'}</strong></p>
             </div>
-            <ul className="space-y-1 text-sm mb-3">
+            <ul className="space-y-1 text-xs mb-4 opacity-90">
               <li>• Ctrl + Scroll to zoom</li>
               <li>• Drag canvas to pan</li>
-              <li>• Drag nodes to reposition</li>
+              <li>• Auto-sizing for large trees</li>
             </ul>
-            <div className="pt-3 border-t border-white/30 space-y-2">
-              <button
-                onClick={resetView}
-                className="w-full bg-white/20 hover:bg-white/30 py-2 rounded-lg transition text-sm"
-              >
-                Reset View
-              </button>
-              <button
-                onClick={resetPositions}
-                className="w-full bg-white/20 hover:bg-white/30 py-2 rounded-lg transition text-sm"
-              >
-                Reset Positions
-              </button>
-            </div>
+            <button
+              onClick={resetView}
+              className="w-full bg-white/20 hover:bg-white/30 py-2 rounded-lg transition-colors"
+            >
+              Reset View
+            </button>
           </div>
         </div>
 
+        {/* Enhanced Tree Visualization */}
         <div className="bg-white rounded-xl shadow-2xl p-4">
           <div className="flex justify-between items-center mb-4">
-            <h2 className="text-2xl font-bold flex items-center">
-              <span className="mr-2">🌳</span> Tree Visualization
-            </h2>
+            <h2 className="text-2xl font-bold">🌳 Tree Structure ({treeNodes.length} nodes)</h2>
             <div className="flex items-center gap-2">
               <span className="text-sm text-gray-600">Zoom: {Math.round(zoom * 100)}%</span>
               <button
-                onClick={() => setZoom(prev => Math.max(0.3, prev - 0.1))}
-                className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                onClick={() => setZoom(prev => Math.max(0.2, prev - 0.1))}
+                className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 transition-colors"
               >
-                -
+                −
               </button>
               <button
-                onClick={() => setZoom(prev => Math.min(3, prev + 0.1))}
-                className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                onClick={() => setZoom(prev => Math.min(2, prev + 0.1))}
+                className="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 transition-colors"
               >
                 +
               </button>
@@ -634,15 +528,17 @@ export default function IntervalTreeVisualizer() {
 
           {treeNodes.length === 0 ? (
             <div className="text-center py-20 text-gray-500">
+              <div className="text-6xl mb-4">🌱</div>
               <p className="text-xl">Tree is empty. Insert some intervals!</p>
             </div>
           ) : (
             <div
               ref={containerRef}
-              className="relative overflow-auto border-2 border-gray-200 rounded-lg bg-gray-50"
+              className="relative overflow-auto border-2 border-gray-200 rounded-lg bg-gradient-to-b from-gray-50 to-gray-100"
               style={{ 
-                height: '600px', 
-                cursor: isPanning ? 'grabbing' : isDraggingNode ? 'grabbing' : 'grab' 
+                height: '700px', 
+                cursor: isPanning ? 'grabbing' : 'grab',
+                scrollbarWidth: 'thin'
               }}
               onMouseDown={handleMouseDown}
               onMouseMove={handleMouseMove}
@@ -650,83 +546,85 @@ export default function IntervalTreeVisualizer() {
               onMouseLeave={handleMouseUp}
             >
               <svg
-                ref={svgRef}
-                width={canvasWidth}
-                height={canvasHeight}
-                viewBox={`0 0 ${canvasWidth} ${canvasHeight}`}
+                width={treeLayout.canvasWidth}
+                height={treeLayout.canvasHeight}
                 style={{
                   transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`,
-                  transformOrigin: '0 0',
-                  minWidth: '100%',
-                  minHeight: '100%'
+                  transformOrigin: '0 0'
                 }}
               >
-                {/* Render edges first so they appear behind nodes */}
-                {treeEdges.map((edge, idx) => {
+                {/* Enhanced edges with better styling */}
+                {treeEdges.map((edge) => {
                   const fromNode = treeNodes[edge.from.nodeIndex]
                   const toNode = treeNodes[edge.to.nodeIndex]
-                  
-                  if (!fromNode || !toNode) return null
-                  
-                  const fromPos = getNodePosition(fromNode)
-                  const toPos = getNodePosition(toNode)
-                  
                   return (
                     <line
                       key={edge.id}
-                      x1={fromPos.x}
-                      y1={fromPos.y + 40}
-                      x2={toPos.x}
-                      y2={toPos.y - 40}
-                      stroke="#2563eb"
+                      x1={fromNode.x}
+                      y1={fromNode.y + 45}
+                      x2={toNode.x}
+                      y2={toNode.y - 45}
+                      stroke="#4b5563"
                       strokeWidth="3"
-                      strokeOpacity="0.8"
+                      strokeOpacity="0.7"
+                      strokeLinecap="round"
                     />
                   )
                 })}
 
-                {/* Render nodes */}
+                {/* Enhanced nodes with better spacing and visibility */}
                 {treeNodes.map((node) => {
-                  const pos = getNodePosition(node)
                   const isHighlighted = searchResult && 
                     node.interval[0] === searchResult[0] && 
                     node.interval[1] === searchResult[1]
                   
+                  const fillColor = isHighlighted ? "#10b981" : 
+                    node.color === 'RED' ? "#dc2626" : "#374151"
+                  
                   return (
-                    <g
-                      key={node.id}
-                      className="node-draggable"
-                      onMouseDown={(e) => handleNodeMouseDown(e, node.id)}
-                      style={{ cursor: 'move' }}
-                    >
+                    <g key={node.id}>
+                      {/* Node shadow */}
                       <rect
-                        x={pos.x - 60}
-                        y={pos.y - 40}
-                        width="120"
-                        height="80"
-                        rx="8"
-                        fill={isHighlighted ? "#10b981" : "#3b82f6"}
-                        stroke="#1e40af"
-                        strokeWidth="2"
+                        x={node.x - 67}
+                        y={node.y - 37}
+                        width={134}
+                        height={84}
+                        rx={12}
+                        fill="rgba(0,0,0,0.1)"
                       />
+                      
+                      {/* Main node */}
+                      <rect
+                        x={node.x - 70}
+                        y={node.y - 40}
+                        width={140}
+                        height={80}
+                        rx={10}
+                        fill={fillColor}
+                        stroke={isHighlighted ? "#059669" : "#1e40af"}
+                        strokeWidth="3"
+                      />
+                      
+                      {/* Interval text */}
                       <text
-                        x={pos.x}
-                        y={pos.y + 5}
+                        x={node.x}
+                        y={node.y + 2}
                         textAnchor="middle"
                         fill="white"
-                        fontSize="13"
+                        fontSize="14"
                         fontWeight="bold"
-                        pointerEvents="none"
                       >
                         [{node.interval[0]}, {node.interval[1]}]
                       </text>
+                      
+                      {/* Max value */}
                       <text
-                        x={pos.x}
-                        y={pos.y + 25}
+                        x={node.x}
+                        y={node.y + 22}
                         textAnchor="middle"
                         fill="white"
-                        fontSize="11"
-                        pointerEvents="none"
+                        fontSize="12"
+                        opacity="0.9"
                       >
                         max: {node.max}
                       </text>
@@ -737,6 +635,9 @@ export default function IntervalTreeVisualizer() {
             </div>
           )}
         </div>
+
+        {/* Enhanced Interval Visualization */}
+        {createIntervalVisualization()}
       </div>
     </div>
   )
